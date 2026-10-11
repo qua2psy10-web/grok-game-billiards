@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="theme-color" content="#100e0c" />
+  <meta name="description" content="PC・スマホ・タブレットで遊べるビリヤード。練習台とCPU対戦" />
+  <title>翠卓 — ビリヤード</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect fill='%23100e0c' width='32' height='32' rx='6'/%3E%3Ccircle cx='16' cy='16' r='8' fill='%23146b3c' stroke='%23c6a15b' stroke-width='2'/%3E%3C/svg%3E" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Shippori+Mincho:wght@500;700&family=Zen+Kaku+Gothic+New:wght@500;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="room">
+    <header class="top">
+      <div class="brand">
+        <p class="eyebrow" id="eyebrow">PRACTICE TABLE</p>
+        <h1>翠卓</h1>
+      </div>
+      <div class="readout">
+        <div id="score" class="score" hidden>
+          <span id="scoreYou">あなた 0</span>
+          <span id="scoreCpu">CPU 0</span>
+        </div>
+        <p id="status" class="status" aria-live="polite">手球から引いて、離すと打てます</p>
+      </div>
+    </header>
+    <div class="stage">
+      <canvas id="table" aria-label="ビリヤード台"></canvas>
+    </div>
+    <section class="controls" aria-label="操作">
+      <div id="pocketed" class="pocketed" hidden aria-label="落とした球"></div>
+      <div class="row">
+        <button type="button" id="practiceBtn" aria-pressed="true">練習</button>
+        <button type="button" id="matchBtn" aria-pressed="false">CPU対戦</button>
+        <button type="button" id="placeBtn" aria-pressed="false">手球を置く</button>
+        <button type="button" id="resetBtn">並べ直す</button>
+        <button type="button" id="muteBtn" aria-pressed="false">音を消す</button>
+      </div>
+      <div class="shot-row">
+        <button type="button" id="aimLeft" aria-label="狙いを左へ">左</button>
+        <label class="power">強さ
+          <input id="power" type="range" min="1" max="100" value="42" />
+        </label>
+        <button type="button" id="aimRight" aria-label="狙いを右へ">右</button>
+        <button type="button" id="shootBtn" class="primary">打つ</button>
+      </div>
+      <p class="hint" id="hint">手球の後ろを引いて離すと打てます。左右キーで微調整、スペースでも打てます。</p>
+    </section>
+  </div>
+  <script src="js/physics.js"></script>
+  <script src="js/cpu.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
