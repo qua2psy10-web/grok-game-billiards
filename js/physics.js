@@ -156,7 +156,7 @@
     a.vy -= j * ny;
     b.vx += j * nx;
     b.vy += j * ny;
-    if (events && j > 0.02) events.push({ type: "ball", speed: j });
+    if (events && j > 0.01) events.push({ type: "ball", speed: j, a: a.id, b: b.id });
     return true;
   }
 

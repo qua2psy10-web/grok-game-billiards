@@ -40,6 +40,7 @@
   var mode = "practice";
   var turn = "player";
   var score = { player: 0, cpu: 0 };
+  var groups = { player: null, cpu: null };
   var winner = null;
   var liveShot = null;
   var cpuThink = null;
@@ -116,7 +117,7 @@
     var ball = cue();
     if (!ball || !canShoot()) return;
     noteUntil = 0;
-    if (mode === "match") liveShot = { by: "player", before: snapshotPocketed() };
+    if (mode === "match") liveShot = { by: "player", before: snapshotPocketed(), firstHit: null };
     Billiards.strike(ball, aim, (0.12 + power * 0.88) * 5.5);
   }
 
@@ -145,6 +146,7 @@
     turn = "player";
     winner = null;
     score = { player: 0, cpu: 0 };
+    groups = { player: null, cpu: null };
     freshTable("練習台です。自由に打てます");
   }
 
@@ -153,48 +155,81 @@
     turn = "player";
     winner = null;
     score = { player: 0, cpu: 0 };
-    freshTable("あなたのブレイクです。先に8個で勝ちです");
+    groups = { player: null, cpu: null };
+    freshTable("あなたのブレイクです。8番は最後に落としてください");
   }
 
-  function tableClear() {
+  function groupName(group) {
+    if (group === "solids") return "単色";
+    if (group === "stripes") return "縞";
+    return "未定";
+  }
+
+  function liftCue() {
     for (var i = 0; i < world.balls.length; i++) {
-      if (world.balls[i].id !== 0 && !world.balls[i].pocketed) return false;
+      if (world.balls[i].id !== 0 || world.balls[i].pocketed) continue;
+      world.balls[i].pocketed = true;
+      world.balls[i].vx = 0;
+      world.balls[i].vy = 0;
+      world.balls[i].pocketId = "foul";
     }
-    return true;
+  }
+
+  function noteContact(events) {
+    if (!liveShot || liveShot.firstHit != null) return;
+    for (var i = 0; i < events.length; i++) {
+      if (events[i].type !== "ball") continue;
+      if (events[i].a === 0) liveShot.firstHit = events[i].b;
+      else if (events[i].b === 0) liveShot.firstHit = events[i].a;
+      if (liveShot.firstHit != null) return;
+    }
   }
 
   function finishVisit() {
     if (mode !== "match" || !liveShot || winner) return;
-    var result = BilliardsCpu.resolveVisit(liveShot.before, world);
     var shooter = liveShot.by;
+    var result = BilliardsCpu.judgeVisit({
+      before: liveShot.before,
+      world: world,
+      firstHit: liveShot.firstHit,
+      group: groups[shooter],
+    });
+    var other = shooter === "player" ? "cpu" : "player";
     liveShot = null;
     cpuThink = null;
-    if (!result.scratch) score[shooter] += result.scored;
-    var decided = BilliardsCpu.winnerOf(score, tableClear());
-    if (decided) {
-      winner = decided;
+    if (result.result === "win" || result.result === "loss") {
+      winner = result.result === "win" ? shooter : other;
       hand = false;
       placeMode = false;
-      flash(decided === "player" ? "あなたの勝ちです" : decided === "cpu" ? "CPUの勝ちです" : "引き分けです");
+      if (result.result === "loss" && shooter === "player") flash("8番で負けです");
+      else if (result.result === "loss") flash("CPUが8番で負けました。あなたの勝ちです");
+      else flash(winner === "player" ? "8番を落として勝ちです" : "CPUが8番を落として勝ちです");
       return;
+    }
+    if (result.assign) {
+      groups[shooter] = result.assign;
+      groups[other] = result.assign === "solids" ? "stripes" : "solids";
     }
     if (result.keepTurn) {
       turn = shooter;
       hand = false;
       placeMode = false;
-      flash(shooter === "player" ? "落としました。続けて打てます" : "CPUが続けます");
+      if (result.assign && shooter === "player") flash("あなたの球は" + groupName(groups.player) + "です。続けて打てます");
+      else if (result.assign) flash("CPUの球は" + groupName(groups.cpu) + "です");
+      else flash(shooter === "player" ? "続けて打てます" : "CPUが続けます");
       return;
     }
-    turn = shooter === "player" ? "cpu" : "player";
-    if (result.scratch || !cue()) {
+    turn = other;
+    if (result.foul) {
+      liftCue();
       if (turn === "player") {
         hand = true;
         placeMode = true;
-        flash("手球は点になりません。置く場所をタップしてください");
+        flash("ファウルです。手球を置いてください");
       } else {
         hand = false;
         placeMode = false;
-        flash("手球は点になりません。CPUが置き直します");
+        flash("ファウルです。CPUが手球を置きます");
       }
       return;
     }
@@ -212,7 +247,7 @@
     if (!Billiards.isSettled(world) || liveShot) return;
     if (!cue()) {
       if (!cpuThink) {
-        if (!BilliardsCpu.placeForCpu(world)) {
+        if (!BilliardsCpu.placeForCpu(world, groups.cpu)) {
           turn = "player";
           hand = true;
           placeMode = true;
@@ -225,7 +260,7 @@
     }
     if (!cpuThink || !cpuThink.shot) {
       if (cpuThink && now < cpuThink.at) return;
-      var shot = BilliardsCpu.chooseShot(world, Math.random);
+      var shot = BilliardsCpu.chooseShot(world, Math.random, groups.cpu);
       aim = shot.angle;
       showSpeed(shot.speed);
       cpuThink = { at: now + 700, shot: shot };
@@ -235,7 +270,7 @@
     var chosen = cpuThink.shot;
     cpuThink = null;
     noteUntil = 0;
-    liveShot = { by: "cpu", before: snapshotPocketed() };
+    liveShot = { by: "cpu", before: snapshotPocketed(), firstHit: null };
     Billiards.strike(cue(), chosen.angle, chosen.speed);
   }
 
@@ -329,14 +364,14 @@
     muteBtn.setAttribute("aria-pressed", muted ? "true" : "false");
     muteBtn.textContent = muted ? "音を出す" : "音を消す";
     scoreEl.hidden = mode !== "match";
-    var youLabel = "あなた " + score.player;
-    var cpuLabel = "CPU " + score.cpu;
+    var youLabel = "あなた " + groupName(groups.player);
+    var cpuLabel = "CPU " + groupName(groups.cpu);
     if (scoreYou.textContent !== youLabel) scoreYou.textContent = youLabel;
     if (scoreCpu.textContent !== cpuLabel) scoreCpu.textContent = cpuLabel;
-    var eyebrow = mode === "match" ? "VERSUS · FIRST TO 8" : "PRACTICE TABLE";
+    var eyebrow = mode === "match" ? "VERSUS · 8-BALL" : "PRACTICE TABLE";
     if (eyebrowEl.textContent !== eyebrow) eyebrowEl.textContent = eyebrow;
     var hint = mode === "match"
-      ? "的球を落とすと続投。手球を落とすと点にならず、相手が手球を置きます。"
+      ? "自分の球を先に当てて落とすと続投。8番は最後。早く落とすと負けです。"
       : "手球の後ろを引いて離すと打てます。左右キーで微調整、スペースでも打てます。";
     if (hintEl.textContent !== hint) hintEl.textContent = hint;
   }
@@ -345,7 +380,6 @@
     if (performance.now() < noteUntil) return note;
     if (winner === "player") return "あなたの勝ちです";
     if (winner === "cpu") return "CPUの勝ちです";
-    if (winner === "draw") return "引き分けです";
     if (mode === "match" && turn === "cpu") {
       if (!cue()) return "CPUが手球を置いています";
       return cpuThink && cpuThink.shot ? "CPUが狙っています" : "CPUの番です";
@@ -357,7 +391,15 @@
     }
     if (placeMode) return "ラシャをタップして手球を置きます";
     if (!Billiards.isSettled(world)) return "ボールが転がっています";
-    if (mode === "match") return "あなたの番です。的球を落とすと続投です";
+    if (mode === "match") {
+      if (!groups.player) return "あなたの番です。落ちた組があなたの球になります";
+      var left = 0;
+      for (var i = 0; i < world.balls.length; i++) {
+        if (!world.balls[i].pocketed && BilliardsCpu.groupOf(world.balls[i].id) === groups.player) left++;
+      }
+      if (!left) return "あなたの番です。8番を落としてください";
+      return "あなたの番です。" + groupName(groups.player) + "を先に当ててください";
+    }
     return "手球から引いて、離すと打てます";
   }
 
@@ -705,7 +747,9 @@
     var dt = Math.min(0.05, (now - last) / 1000);
     last = now;
     if (!Billiards.isSettled(world)) {
-      playEvents(Billiards.stepWorld(world, dt));
+      var events = Billiards.stepWorld(world, dt);
+      noteContact(events);
+      playEvents(events);
       wasMoving = true;
     } else {
       if (wasMoving) {
@@ -848,7 +892,16 @@
     reset: resetRack,
     startMatch: startMatch,
     getMatch: function () {
-      return { mode: mode, turn: turn, score: { player: score.player, cpu: score.cpu }, winner: winner };
+      return {
+        mode: mode,
+        turn: turn,
+        score: { player: score.player, cpu: score.cpu },
+        groups: { player: groups.player, cpu: groups.cpu },
+        winner: winner,
+      };
     },
   };
+  if ("serviceWorker" in navigator && location.protocol !== "file:") {
+    navigator.serviceWorker.register("./sw.js").catch(function () {});
+  }
 })();

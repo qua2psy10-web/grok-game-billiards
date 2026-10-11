@@ -48,30 +48,77 @@ function testStraightInIsPocketed() {
   assert.ok(result.potted >= 1, "object ball falls");
 }
 
-function testVisitScoring() {
-  const world = straightWorld();
+function judge(world, extra) {
   const before = {};
-  const kept = Cpu.resolveVisit(before, world);
-  assert.deepEqual(kept, { potted: 0, scratch: false, scored: 0, keepTurn: false });
-
-  world.balls[1].pocketed = true;
-  const potted = Cpu.resolveVisit(before, world);
-  assert.equal(potted.scored, 1);
-  assert.equal(potted.keepTurn, true);
-
-  world.balls[0].pocketed = true;
-  const scratch = Cpu.resolveVisit(before, world);
-  assert.equal(scratch.scratch, true);
-  assert.equal(scratch.scored, 0);
-  assert.equal(scratch.keepTurn, false);
+  for (const ball of world.balls) {
+    if (ball.pocketed && ball.id !== 0 && !extra.newly) before[ball.id] = true;
+  }
+  if (extra.newly) {
+    for (const ball of world.balls) {
+      if (ball.pocketed && ball.id !== 0 && extra.newly.indexOf(ball.id) === -1) before[ball.id] = true;
+    }
+  }
+  return Cpu.judgeVisit(Object.assign({ before, world, firstHit: 1, group: null }, extra.visit));
 }
 
-function testWinner() {
-  assert.equal(Cpu.winnerOf({ player: 8, cpu: 3 }, false), "player");
-  assert.equal(Cpu.winnerOf({ player: 4, cpu: 8 }, false), "cpu");
-  assert.equal(Cpu.winnerOf({ player: 4, cpu: 4 }, false), null);
-  assert.equal(Cpu.winnerOf({ player: 4, cpu: 4 }, true), "draw");
-  assert.equal(Cpu.winnerOf({ player: 5, cpu: 2 }, true), "player");
+function testOpenTableAssignsThePottedGroup() {
+  const world = straightWorld();
+  world.balls[1].pocketed = true;
+  const result = judge(world, { newly: [1], visit: { firstHit: 1, group: null } });
+  assert.equal(result.foul, false);
+  assert.equal(result.assign, "solids");
+  assert.equal(result.keepTurn, true);
+}
+
+function testWrongBallFirstIsAFoul() {
+  const world = straightWorld();
+  const result = judge(world, { visit: { firstHit: 9, group: "solids" } });
+  assert.equal(result.foul, true);
+  assert.equal(result.keepTurn, false);
+}
+
+function testEarlyEightLosesAndClearEightWins() {
+  const world = straightWorld();
+  const eight = {
+    id: 8,
+    x: 0.4,
+    y: 0.4,
+    vx: 0,
+    vy: 0,
+    r: world.table.ballR,
+    pocketed: true,
+    pocketId: "s",
+    pocketSeq: 1,
+  };
+  world.balls.push(eight);
+  const early = judge(world, { newly: [8], visit: { firstHit: 1, group: "solids" } });
+  assert.equal(early.result, "loss");
+
+  for (let id = 1; id <= 7; id++) {
+    if (!world.balls.some((ball) => ball.id === id)) {
+      world.balls.push({ id, x: 0.2, y: 0.2, vx: 0, vy: 0, r: world.table.ballR, pocketed: true, pocketId: "n", pocketSeq: 1 });
+    }
+  }
+  world.balls.find((ball) => ball.id === 1).pocketed = true;
+  const won = judge(world, { newly: [8], visit: { firstHit: 8, group: "solids" } });
+  assert.equal(won.result, "win");
+
+  world.balls[0].pocketed = true;
+  const scratched = judge(world, { newly: [8], visit: { firstHit: 8, group: "solids" } });
+  assert.equal(scratched.result, "loss");
+}
+
+function testSolidsCandidateIgnoresStripesUntilClear() {
+  const world = B.createPracticeRack();
+  const aimed = Cpu.candidates(world, "solids").map((shot) => shot.ballId);
+  assert.ok(aimed.length > 0);
+  assert.ok(aimed.every((id) => id >= 1 && id <= 7));
+  world.balls.forEach((ball) => {
+    if (ball.id >= 1 && ball.id <= 7) ball.pocketed = true;
+  });
+  const eight = Cpu.candidates(world, "solids").map((shot) => shot.ballId);
+  assert.ok(eight.length > 0);
+  assert.ok(eight.every((id) => id === 8));
 }
 
 function testPlacesCueAfterScratch() {
@@ -96,8 +143,10 @@ function testFullRackChoosesQuickly() {
 }
 
 testStraightInIsPocketed();
-testVisitScoring();
-testWinner();
+testOpenTableAssignsThePottedGroup();
+testWrongBallFirstIsAFoul();
+testEarlyEightLosesAndClearEightWins();
+testSolidsCandidateIgnoresStripesUntilClear();
 testPlacesCueAfterScratch();
 testFullRackChoosesQuickly();
 console.log("cpu tests ok");
