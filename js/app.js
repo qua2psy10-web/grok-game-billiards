@@ -54,6 +54,8 @@
   var note = "";
   var noteUntil = 0;
   var last = 0;
+  var falls = [];
+  var FELT_DUST = ["#d7f3df", "#8fd9a2", "#3aaa68", "#146b3c"];
 
   try {
     muted = localStorage.getItem("midori-muted") === "1";
@@ -130,6 +132,7 @@
     liveShot = null;
     cpuThink = null;
     wasMoving = false;
+    falls = [];
     trayKey = "reset";
     setPower(0.42);
     flash(message);
@@ -302,6 +305,76 @@
     if (ball > 0.08) tone(150 + Math.min(ball, 4) * 18, 0.05, Math.min(0.08, ball * 0.015));
     else if (rail > 0.15) tone(90 + Math.min(rail, 3) * 20, 0.04, Math.min(0.05, rail * 0.012));
     if (pocket) tone(70, 0.12, 0.06);
+  }
+
+  function pocketCenter(id) {
+    var table = world.table;
+    if (id === "sw") return { x: 0, y: 0 };
+    if (id === "se") return { x: table.length, y: 0 };
+    if (id === "nw") return { x: 0, y: table.width };
+    if (id === "ne") return { x: table.length, y: table.width };
+    if (id === "s") return { x: table.length / 2, y: 0 };
+    if (id === "n") return { x: table.length / 2, y: table.width };
+    return null;
+  }
+
+  function spawnFalls(events) {
+    var table = world.table;
+    for (var i = 0; i < events.length; i++) {
+      if (events[i].type !== "pocket") continue;
+      var ball = null;
+      for (var b = 0; b < world.balls.length; b++) {
+        if (world.balls[b].id === events[i].id) ball = world.balls[b];
+      }
+      if (!ball) continue;
+      var pocket = pocketCenter(ball.pocketId) || { x: ball.x, y: ball.y };
+      var inward = Math.atan2(table.width / 2 - pocket.y, table.length / 2 - pocket.x);
+      var dust = [];
+      for (var n = 0; n < 12; n++) {
+        var ang = inward + (Math.random() - 0.5) * Math.PI * 1.5;
+        var speed = 0.22 + Math.random() * 0.55;
+        dust.push({
+          x: pocket.x,
+          y: pocket.y,
+          vx: Math.cos(ang) * speed,
+          vy: Math.sin(ang) * speed,
+          r: 0.006 + Math.random() * 0.01,
+          life: 0.26 + Math.random() * 0.2,
+          age: 0,
+          color: FELT_DUST[n % FELT_DUST.length],
+        });
+      }
+      falls.push({
+        id: ball.id,
+        r: ball.r,
+        x0: ball.x,
+        y0: ball.y,
+        px: pocket.x,
+        py: pocket.y,
+        age: 0,
+        life: 0.48,
+        dust: dust,
+      });
+    }
+  }
+
+  function stepFalls(dt) {
+    var keep = [];
+    for (var i = 0; i < falls.length; i++) {
+      var fall = falls[i];
+      fall.age += dt;
+      for (var j = 0; j < fall.dust.length; j++) {
+        var speck = fall.dust[j];
+        speck.age += dt;
+        speck.x += speck.vx * dt;
+        speck.y += speck.vy * dt;
+        var drag = Math.exp(-dt * 4.5);
+        speck.vx *= drag;
+        speck.vy *= drag;
+      }
+      if (fall.age < fall.life) keep.push(fall);
+    }
+    falls = keep;
   }
 
   function tone(freq, dur, gain) {
@@ -623,10 +696,11 @@
     drawDiamond(view.ox + view.tw + view.rail * 0.48, view.oy + view.th / 2, s);
   }
 
-  function drawBall(ball) {
-    var x = view.ox + ball.x * view.scale;
-    var y = view.oy + ball.y * view.scale;
-    var r = ball.r * view.scale;
+  function drawBall(ball, at) {
+    var x = view.ox + (at ? at.x : ball.x) * view.scale;
+    var y = view.oy + (at ? at.y : ball.y) * view.scale;
+    var r = ball.r * view.scale * (at ? at.scale : 1);
+    if (r < 0.6) return;
     ctx.save();
     ctx.translate(x, y);
     ctx.beginPath();
@@ -668,6 +742,74 @@
     ctx.arc(-r * 0.32, -r * 0.36, r * 0.18, 0, Math.PI * 2);
     ctx.fill();
     ctx.restore();
+  }
+
+  function drawFalls() {
+    var i;
+    var j;
+    var fall;
+    var speck;
+    var u;
+    var alpha;
+    var t;
+    var ease;
+    if (!falls.length) return;
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(view.ox, view.oy, view.tw, view.th);
+    ctx.clip();
+    for (i = 0; i < falls.length; i++) {
+      fall = falls[i];
+      u = Math.min(1, fall.age / 0.32);
+      alpha = 0.7 * (1 - u);
+      if (alpha <= 0.02) continue;
+      ctx.beginPath();
+      ctx.arc(
+        view.ox + fall.px * view.scale,
+        view.oy + fall.py * view.scale,
+        (0.035 + u * 0.2) * view.scale,
+        0,
+        Math.PI * 2
+      );
+      ctx.strokeStyle = "rgba(3, 18, 10, " + alpha + ")";
+      ctx.lineWidth = Math.max(2, (1 - u) * 10);
+      ctx.stroke();
+    }
+    ctx.restore();
+    drawPockets();
+    for (i = 0; i < falls.length; i++) {
+      fall = falls[i];
+      for (j = 0; j < fall.dust.length; j++) {
+        speck = fall.dust[j];
+        if (speck.age >= speck.life) continue;
+        ctx.globalAlpha = 1 - speck.age / speck.life;
+        ctx.beginPath();
+        ctx.arc(
+          view.ox + speck.x * view.scale,
+          view.oy + speck.y * view.scale,
+          Math.max(0.8, speck.r * view.scale),
+          0,
+          Math.PI * 2
+        );
+        ctx.fillStyle = speck.color;
+        ctx.fill();
+      }
+    }
+    ctx.globalAlpha = 1;
+    for (i = 0; i < falls.length; i++) {
+      fall = falls[i];
+      t = fall.age / 0.28;
+      if (t >= 1) continue;
+      ease = t * t;
+      drawBall(
+        { id: fall.id, r: fall.r },
+        {
+          x: fall.x0 + (fall.px - fall.x0) * ease,
+          y: fall.y0 + (fall.py - fall.y0) * ease,
+          scale: 1 - ease,
+        }
+      );
+    }
   }
 
   function drawCue(ball) {
@@ -733,6 +875,7 @@
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, canvas.clientWidth, canvas.clientHeight);
     drawTable();
+    drawFalls();
     for (var i = 0; i < world.balls.length; i++) {
       if (!world.balls[i].pocketed) drawBall(world.balls[i]);
     }
@@ -750,6 +893,7 @@
       var events = Billiards.stepWorld(world, dt);
       noteContact(events);
       playEvents(events);
+      spawnFalls(events);
       wasMoving = true;
     } else {
       if (wasMoving) {
@@ -763,6 +907,7 @@
       }
       maybeRunCpu(now);
     }
+    stepFalls(dt);
     var text = statusText();
     if (statusEl.textContent !== text) statusEl.textContent = text;
     syncControls();
